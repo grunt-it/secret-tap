@@ -9,20 +9,29 @@ The point: hand a secret to Proton Pass without it passing through a terminal
 you're sharing, a chat transcript, or shell history. Whoever started the
 process (you, or an agent acting on your behalf) sees only the exit code.
 
-## Use
+## Install
+
+Straight from GitHub — no npm registry, no build step:
 
 ```sh
-bunx @grunt-it/secret-tap cloudflare-grunt-ai-gateway-runtime
+bun install -g "github:grunt-it/secret-tap#main"
+```
+
+Then run it:
+
+```sh
+secret-tap cloudflare-grunt-ai-gateway-runtime
 # or pick the vault explicitly
-bunx @grunt-it/secret-tap my-item-title --vault grunt
+secret-tap my-item-title --vault grunt
 ```
 
-Install it globally if you reach for it often:
+Or run without installing:
 
 ```sh
-bun install -g @grunt-it/secret-tap
-secret-tap my-item-title
+bunx "github:grunt-it/secret-tap#main" my-item-title
 ```
+
+To pick up updates, re-run the `bun install -g` line.
 
 ## What happens
 

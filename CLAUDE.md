@@ -37,8 +37,11 @@ than two files it has outgrown its purpose — stop and reconsider.
   template schema, update the JSON in `index.ts` to match
   `pass-cli item create login --get-template`.
 
-## Release
+## Distribution
 
-Tag-free for now — published manually with `bun publish` (public, scoped
-`@grunt-it/secret-tap`). Bump `version` in `package.json`, `bun run typecheck`,
-`bun publish`.
+Installed straight from GitHub — `bun install -g "github:grunt-it/secret-tap#main"`.
+No npm publish, no build step (Bun runs the `.ts` bin directly). Bun needs the
+explicit `#main` ref; a bare `github:grunt-it/secret-tap` 404s.
+
+To cut a versioned release later: bump `version` in `package.json`, tag, and
+either point installs at the tag or `bun publish`. Not needed for now.
