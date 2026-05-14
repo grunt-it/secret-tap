@@ -1,0 +1,38 @@
+{
+  "name": "@grunt-it/secret-tap",
+  "version": "0.1.0",
+  "description": "Localhost secret-intake tap — paste a secret into a single-use local browser form, it lands in Proton Pass, nothing else ever sees it.",
+  "type": "module",
+  "bin": {
+    "secret-tap": "./src/index.ts"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/grunt-it/secret-tap.git"
+  },
+  "keywords": [
+    "secrets",
+    "proton-pass",
+    "pass-cli",
+    "localhost",
+    "cli"
+  ],
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5"
+  }
+}
