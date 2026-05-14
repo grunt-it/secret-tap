@@ -48,6 +48,20 @@ To pick up updates, re-run the `bun install -g` line.
 
 A 5-minute hard timeout means the tap never lingers.
 
+## Output contract
+
+The exit code is the coarse signal (`0` stored, `1` timed out). The detail —
+including the **final item title**, which you can edit in the form — is the
+last line of stdout:
+
+```
+secret-tap:result {"status":"stored","title":"my-item","vault":"grunt"}
+secret-tap:result {"status":"timeout"}
+```
+
+Parse that line (not the command-line argument) to learn what the item was
+actually saved as. It never contains the secret value.
+
 ## Requirements
 
 - [Bun](https://bun.sh) ≥ 1.0

@@ -113,6 +113,12 @@ const server = Bun.serve({
         setTimeout(() => {
           server.stop(true);
           console.log(`  Stored "${title}" in vault "${vault}".`);
+          // Stable machine-readable contract: on success the FINAL stdout
+          // line is always `secret-tap:result <json>`. The caller (a human,
+          // or an agent that invoked the tool) reads the final item title
+          // and vault from here — the user may have edited the title in the
+          // form, so the title passed on the command line is not authoritative.
+          emitResult({ status: "stored", title, vault });
           process.exit(0);
         }, 600);
       });
@@ -134,6 +140,18 @@ function html(body: string, status = 200): Response {
   });
 }
 
+/**
+ * The tool's machine-readable contract. The LAST line of stdout is always
+ * `secret-tap:result <json>` — `{ status: "stored", title, vault }` on a
+ * successful store, `{ status: "timeout" }` if it timed out. The exit code
+ * (0 / 1) is the coarse signal; this line carries the detail a caller needs
+ * to act — above all the FINAL title, since the user can rename in the form.
+ * Never contains the secret value.
+ */
+function emitResult(result: { status: "stored" | "timeout"; title?: string; vault?: string }): void {
+  console.log(`secret-tap:result ${JSON.stringify(result)}`);
+}
+
 const tapUrl = `http://127.0.0.1:${server.port}/${pathToken}`;
 console.log("");
 console.log(`  secret-tap → Proton Pass vault "${vault}"`);
@@ -152,6 +170,7 @@ try {
 // Never leave the tap listening forever.
 setTimeout(() => {
   console.error("  Timed out — no secret submitted in 5 minutes. Exiting.");
+  emitResult({ status: "timeout" });
   server.stop(true);
   process.exit(1);
 }, TIMEOUT_MS);
