@@ -32,10 +32,18 @@ than two files it has outgrown its purpose — stop and reconsider.
 
 - Bun, not node/npm. `bun install`, `bun run`.
 - `bun run typecheck` before publishing.
-- The `pass-cli` invocation shape is pinned to
-  `pass-cli item create login --from-template -`. If `pass-cli` changes its
-  template schema, update the JSON in `index.ts` to match
-  `pass-cli item create login --get-template`.
+- The store path is `pass-cli item create login --vault-name <vault>
+  --from-template -` (template + secret on stdin — secret never in argv).
+  If `pass-cli` changes its template schema, update the JSON in `index.ts`
+  to match `pass-cli item create login --get-template`.
+- The tool acts as an UPSERT: before create, an active same-title item is
+  moved to trash via `pass-cli item trash --vault-name <vault> --item-title
+  <title>` (title only — preserves the "no secret in argv" property). On
+  create failure, rollback via `pass-cli item untrash` of the trashed item.
+  Trashed items can also be manually restored from Proton Pass if the
+  rollback itself fails. Update-via-`pass-cli item update --field
+  password=<value>` is **not** used because `--field` puts the value in
+  argv, defeating the whole point.
 
 ## Distribution
 

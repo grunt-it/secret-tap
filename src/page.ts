@@ -223,16 +223,22 @@ export function renderPage(initialTitle: string, vault: string): string {
   `);
 }
 
-export function renderSuccess(title: string, vault: string): string {
+export function renderSuccess(
+  title: string,
+  vault: string,
+  action: "stored" | "updated" = "stored",
+): string {
+  const heading = action === "updated" ? "Updated" : "Stored";
+  const verb = action === "updated" ? "was updated in" : "landed in";
   return SHELL(`
     <div class="result">
       <svg class="check" viewBox="0 0 60 60">
         <circle cx="30" cy="30" r="26" />
         <path d="M18 31 l8 8 l16 -18" />
       </svg>
-      <h1>Stored &check;</h1>
+      <h1>${heading} &check;</h1>
       <p class="sub"><span class="vault">${escapeHtml(title)}</span>
-        landed in the <span class="vault">${escapeHtml(vault)}</span> vault.<br />
+        ${verb} the <span class="vault">${escapeHtml(vault)}</span> vault.<br />
         You can close this tab.</p>
     </div>
     <script>

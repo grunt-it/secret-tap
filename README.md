@@ -39,14 +39,27 @@ To pick up updates, re-run the `bun install -g` line.
 2. The form lives behind an unguessable single-use path token — anything else
    gets a flat 404.
 3. Your browser opens to it. Paste the value, optionally tweak the title.
-4. On submit, the value is piped into
+4. **Upsert step**: if an active item in `<vault>` already has the chosen
+   title, it's first moved to trash (`pass-cli item trash --vault-name
+   <vault> --item-title <title>` — title only, no secret in argv).
+5. The value is piped into
    `pass-cli item create login --vault-name <vault> --from-template -`.
-5. Success → a little checkmark, the tab self-closes, the server stops and the
+   Whether the previous item was trashed in step 4 or not, the new value
+   always rides in on stdin — never argv.
+6. Success → a little checkmark (heading reads "Updated" if step 4 trashed
+   one, "Stored" otherwise), the tab self-closes, the server stops and the
    process exits `0`.
-6. Failure → the `pass-cli` error is shown in the page; the server stays up so
-   you can fix and retry (re-login, change vault, etc.).
+7. Failure → the `pass-cli` error is shown in the page. If step 4 trashed an
+   item, the tool tries to `untrash` it as rollback so the vault isn't left
+   in a worse state. The server stays up so you can fix and retry (re-login,
+   change vault, etc.).
 
 A 5-minute hard timeout means the tap never lingers.
+
+The final stdout line is the machine-readable contract:
+`secret-tap:result {"status":"stored","action":"stored"|"updated","title":"…","vault":"…"}` —
+callers (humans or agents) read `action` to know whether they created a new
+item or rotated an existing one.
 
 ## Output contract
 
