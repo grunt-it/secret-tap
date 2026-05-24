@@ -21,38 +21,95 @@ import { renderPage, renderSuccess, renderError } from "./page.ts";
 const TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_VAULT = "grunt";
 
-function parseArgs(argv: string[]): { title: string; vault: string; noOpen: boolean } {
+/** A field row pre-populated in the form from a `--field` flag. Name + type
+ * only — never a value (values are entered in the browser, never on argv). */
+interface PresetField {
+  name: string;
+  /** internal pass-cli field_type: hidden | text | totp | timestamp */
+  type: string;
+}
+
+/** Friendly CLI type names → pass-cli `field_type`. "secret" is the friendly
+ * spelling of "hidden"; both accepted. */
+const FIELD_TYPE_ALIASES: Record<string, string> = {
+  secret: "hidden",
+  hidden: "hidden",
+  text: "text",
+  totp: "totp",
+  timestamp: "timestamp",
+};
+
+function parseArgs(argv: string[]): {
+  title: string;
+  vault: string;
+  noOpen: boolean;
+  fields: PresetField[];
+} {
   let vault = DEFAULT_VAULT;
   let noOpen = false;
+  const fields: PresetField[] = [];
   const rest: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "--vault" || a === "-v") {
       const next = argv[++i];
       if (next) vault = next;
+    } else if (a === "--field" || a === "-f") {
+      // --field <name>[:<type>] — presets one form row. Repeatable. No value
+      // here; values are pasted into the browser form. (name/type aren't
+      // secret, so being on argv is fine.)
+      const next = argv[++i];
+      if (!next) {
+        console.error("  --field needs a value: --field <name>[:<type>]");
+        process.exit(2);
+      }
+      const colon = next.indexOf(":");
+      const name = (colon === -1 ? next : next.slice(0, colon)).trim();
+      const rawType = (colon === -1 ? "secret" : next.slice(colon + 1)).trim().toLowerCase();
+      if (!name) {
+        console.error(`  --field needs a name before the colon: "${next}"`);
+        process.exit(2);
+      }
+      const type = FIELD_TYPE_ALIASES[rawType];
+      if (!type) {
+        console.error(
+          `  --field "${next}": unknown type "${rawType}". Use secret | text | totp | timestamp.`,
+        );
+        process.exit(2);
+      }
+      fields.push({ name, type });
     } else if (a === "--no-open") {
       noOpen = true;
     } else if (a === "--help" || a === "-h") {
       console.log(
         "secret-tap — paste a secret (or several typed fields) into a local browser\n" +
           "form; it lands in Proton Pass. Value(s) never touch argv, a file, or a log.\n\n" +
-          "Usage: secret-tap [item-title] [--vault <name>] [--no-open]\n\n" +
-          `  item-title   pre-fills the title field (default vault: ${DEFAULT_VAULT})\n` +
-          "  --vault, -v  Proton Pass vault to store into\n" +
-          "  --no-open    don't auto-open a browser; just print the URL\n\n" +
-          "One secret by default → stored as a login item's password. Add fields —\n" +
-          "each typed Secret / Text / TOTP / Timestamp — and it's stored as a custom\n" +
-          "item, every field addressable as pass://<vault>/<title>/<field-name>.\n",
+          "Usage: secret-tap [item-title] [--vault <name>] [--field <name>[:<type>]]… [--no-open]\n\n" +
+          `  item-title       pre-fills the title field (default vault: ${DEFAULT_VAULT})\n` +
+          "  --vault, -v      Proton Pass vault to store into\n" +
+          "  --field, -f      preset a form row: <name>[:<type>], repeatable.\n" +
+          "                   <type> = secret (default) | text | totp | timestamp.\n" +
+          "  --no-open        don't auto-open a browser; just print the URL\n\n" +
+          "One secret by default → stored as a login item's password. Preset (or add\n" +
+          "in the form) several typed fields and it's stored as a custom item, every\n" +
+          "field addressable as pass://<vault>/<title>/<field-name>.\n\n" +
+          "  e.g.  secret-tap r2-token --vault grunt-ai \\\n" +
+          "          --field access-key-id:text --field secret-access-key:secret\n",
       );
       process.exit(0);
     } else {
       rest.push(a);
     }
   }
-  return { title: rest.join(" "), vault, noOpen };
+  return { title: rest.join(" "), vault, noOpen, fields };
 }
 
-const { title: initialTitle, vault, noOpen } = parseArgs(process.argv.slice(2));
+const {
+  title: initialTitle,
+  vault,
+  noOpen,
+  fields: presetFields,
+} = parseArgs(process.argv.slice(2));
 
 /**
  * Returns the item-id of an *active* item in `vault` whose title matches
@@ -105,7 +162,7 @@ const server = Bun.serve({
     }
 
     if (req.method === "GET") {
-      return html(renderPage(initialTitle, vault));
+      return html(renderPage(initialTitle, vault, presetFields));
     }
 
     if (req.method === "POST") {

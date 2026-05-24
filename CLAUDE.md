@@ -50,6 +50,12 @@ than two files it has outgrown its purpose — stop and reconsider.
   row; `index.ts` zips them by index (FormData preserves DOM order). Field
   NAMES and TYPES are not secret and ride in the template too — only the
   trash step's `--item-title` is ever in argv, and the title isn't secret.
+- `--field <name>[:<type>]` (repeatable) presets the form's rows: names +
+  types only, **never a value** (values are pasted in the browser, so they
+  stay off argv). The presets are serialised into the page as `PRESET_FIELDS`
+  and `page.ts` builds the initial rows from them; with none, it falls back to
+  the single `password`/Secret row. CLI type spellings (`secret` → `hidden`,
+  `text`, `totp`, `timestamp`) map via `FIELD_TYPE_ALIASES` in `index.ts`.
 - The tool acts as an UPSERT: before create, an active same-title item is
   moved to trash via `pass-cli item trash --vault-name <vault> --item-title
   <title>` (title only — preserves the "no secret in argv" property). On

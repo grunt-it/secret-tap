@@ -218,7 +218,14 @@ ${inner}
 </body>
 </html>`;
 
-export function renderPage(initialTitle: string, vault: string): string {
+export function renderPage(
+  initialTitle: string,
+  vault: string,
+  presetFields: { name: string; type: string }[] = [],
+): string {
+  // Preset rows are serialised into the page as JS — names/types only, never
+  // a value. Escape `<` so a field name can't break out of the <script> tag.
+  const presetJson = JSON.stringify(presetFields).replace(/</g, "\\u003c");
   return SHELL(`
     <span class="badge"><span class="dot"></span>secret-tap</span>
     <h1>Drop a secret in</h1>
@@ -309,9 +316,19 @@ export function renderPage(initialTitle: string, vault: string): string {
         addRow('', 'text').querySelector('.fname').focus();
       });
 
-      // Initial state: one secret field named "password". Left untouched, the
-      // single-secret case stores a login item — identical to the original.
-      const first = addRow('password', 'hidden');
+      // Preset rows from --field flags (names + types only), else one secret
+      // field named "password" → the untouched single-secret case stores a
+      // login item, identical to the original behaviour.
+      const PRESET_FIELDS = ${presetJson};
+      let first;
+      if (PRESET_FIELDS.length) {
+        PRESET_FIELDS.forEach(function (f) {
+          const r = addRow(f.name, f.type);
+          if (!first) first = r;
+        });
+      } else {
+        first = addRow('password', 'hidden');
+      }
       const titleEl = document.getElementById('title');
       (titleEl.value ? first.querySelector('.fvalue') : titleEl).focus();
     </script>

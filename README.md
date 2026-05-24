@@ -28,7 +28,15 @@ Then run it:
 secret-tap cloudflare-grunt-ai-gateway-runtime
 # or pick the vault explicitly
 secret-tap my-item-title --vault grunt
+# preset the form's fields (names + types only — values are pasted in the browser)
+secret-tap r2-token --vault grunt-ai \
+  --field access-key-id:text --field secret-access-key:secret
 ```
+
+`--field <name>[:<type>]` is repeatable and pre-fills the form's rows so you
+only paste values. `<type>` is `secret` (default) · `text` · `totp` ·
+`timestamp`. With no `--field`, the form opens with a single secret field
+(stored as a login item).
 
 Or run without installing:
 
