@@ -55,8 +55,11 @@ To pick up updates, re-run the `bun install -g` line.
    more fields if the credential has several parts; each field has a name, a
    type (Secret / Text / TOTP / Timestamp), and a value.
 4. **Upsert step**: if an active item in `<vault>` already has the chosen
-   title, it's first moved to trash (`pass-cli item trash --vault-name
-   <vault> --item-title <title>` — title only, no secret in argv).
+   title, it's first **renamed** to a unique title (`<title> (replaced
+   <timestamp>)`) and then trashed — title only, no secret in argv. Renaming
+   before trashing is deliberate: a same-title trashed item can shadow the new
+   one in `pass://` resolution, so the rename guarantees the new item resolves
+   cleanly.
 5. The value(s) are piped into `pass-cli item create … --from-template -`:
    - a single, untouched **Secret** field → a **login** item (`password`),
      so `pass://<vault>/<title>` still resolves it by default — identical to

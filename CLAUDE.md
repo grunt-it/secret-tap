@@ -56,14 +56,19 @@ than two files it has outgrown its purpose — stop and reconsider.
   and `page.ts` builds the initial rows from them; with none, it falls back to
   the single `password`/Secret row. CLI type spellings (`secret` → `hidden`,
   `text`, `totp`, `timestamp`) map via `FIELD_TYPE_ALIASES` in `index.ts`.
-- The tool acts as an UPSERT: before create, an active same-title item is
-  moved to trash via `pass-cli item trash --vault-name <vault> --item-title
-  <title>` (title only — preserves the "no secret in argv" property). On
-  create failure, rollback via `pass-cli item untrash` of the trashed item.
-  Trashed items can also be manually restored from Proton Pass if the
-  rollback itself fails. Update-via-`pass-cli item update --field
-  password=<value>` is **not** used because `--field` puts the value in
-  argv, defeating the whole point.
+- The tool acts as a **collision-safe UPSERT**. Before create, an active
+  same-title item is **renamed** to a unique superseded title
+  (`<title> (replaced <iso-ts>)`) via `pass-cli item update --item-id <id>
+  --field title=<superseded>` and *then* trashed under that new title. The
+  rename is the load-bearing part: trashing under the *same* title leaves a
+  same-title trashed item, and pass-cli's `pass://` resolution can match that
+  stale trashed item instead of the new one — silently returning old values
+  (hit live 2026-05-24 rotating `r2-token`). Renaming first means the new item
+  owns the title alone and resolves cleanly. On create failure: untrash +
+  rename the original back to `<title>`. Only the (non-secret) title is ever
+  in argv across rename/trash/untrash, preserving the "no secret in argv"
+  property. Update-via-`pass-cli item update --field password=<value>` is still
+  **not** used for the value because `--field` would put the secret in argv.
 
 ## Distribution
 

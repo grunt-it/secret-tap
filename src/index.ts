@@ -266,32 +266,54 @@ const server = Bun.serve({
         });
       }
 
-      // If an active item with this title already exists in the vault, move
-      // it to trash before creating the replacement. This makes secret-tap
-      // act as an upsert — rotating a token just requires re-running with
-      // the same item title. The trash step takes only the title in argv
-      // (no secret value), so it preserves the "secret never enters argv"
-      // property of the create flow. If the new-item create then fails, we
-      // untrash the original to leave the vault as we found it.
-      let trashedExisting = false;
+      // Collision-safe upsert. If an active item with this title already
+      // exists, we remove it before creating the replacement. But simply
+      // trashing it leaves a *same-title* trashed item, and pass-cli's
+      // `pass://` resolution can then match that stale trashed item instead of
+      // the new one — silently returning old values. So we first RENAME the
+      // existing item to a unique title, then trash it; the new item then owns
+      // the title alone and resolves cleanly. Rename + trash only put the
+      // (non-secret) title in argv, preserving the "secret never enters argv"
+      // property. On a later create failure we untrash + rename back.
+      let replaced: { id: string; supersededTitle: string } | null = null;
       try {
         const existingId = await findActiveItemId(vault, title);
         if (existingId !== null) {
-          const trash = Bun.spawn(
-            ["pass-cli", "item", "trash", "--vault-name", vault, "--item-title", title],
+          const supersededTitle = `${title} (replaced ${new Date()
+            .toISOString()
+            .replace(/[:.]/g, "-")})`;
+          // 1. Rename the existing item (by id) to the unique superseded title.
+          const rename = Bun.spawn(
+            // prettier-ignore
+            ["pass-cli", "item", "update", "--vault-name", vault, "--item-id", existingId, "--field", `title=${supersededTitle}`],
             { stdout: "pipe", stderr: "pipe" },
           );
-          const tec = await trash.exited;
-          if (tec !== 0) {
-            const tstderr = (await new Response(trash.stderr).text()).trim();
+          if ((await rename.exited) !== 0) {
+            const e = (await new Response(rename.stderr).text()).trim();
             return html(
-              renderError(
-                `Couldn't trash existing "${title}" in vault "${vault}" before update: ${tstderr || `pass-cli exited ${tec}`}`,
-              ),
+              renderError(`Couldn't rename existing "${title}" before update: ${e || "pass-cli error"}`),
               500,
             );
           }
-          trashedExisting = true;
+          // 2. Trash it under its now-unique title.
+          const trash = Bun.spawn(
+            ["pass-cli", "item", "trash", "--vault-name", vault, "--item-title", supersededTitle],
+            { stdout: "pipe", stderr: "pipe" },
+          );
+          if ((await trash.exited) !== 0) {
+            const e = (await new Response(trash.stderr).text()).trim();
+            // Undo the rename so we don't leave the item renamed-but-active.
+            Bun.spawn(
+              // prettier-ignore
+              ["pass-cli", "item", "update", "--vault-name", vault, "--item-id", existingId, "--field", `title=${title}`],
+              { stdout: "ignore", stderr: "ignore" },
+            );
+            return html(
+              renderError(`Couldn't trash existing "${title}" before update: ${e || "pass-cli error"}`),
+              500,
+            );
+          }
+          replaced = { id: existingId, supersededTitle };
         }
       } catch (e) {
         // If we can't list (e.g. session issue), let the create below run
@@ -315,24 +337,32 @@ const server = Bun.serve({
       if (exitCode !== 0) {
         const stderr = (await new Response(proc.stderr).text()).trim();
         const detail = stderr || `pass-cli exited with code ${exitCode}`;
-        // Rollback: if we trashed the existing item, try to bring it back so
-        // the vault isn't left in a worse state than we found it. Best-effort
-        // — surface a hint if the rollback also fails.
+        // Rollback: if we replaced an existing item, untrash it and restore
+        // its original title so the vault is left as we found it. Best-effort
+        // — surface a hint if the rollback can't complete.
         let rollbackHint = "";
-        if (trashedExisting) {
+        if (replaced !== null) {
           const untrash = Bun.spawn(
-            ["pass-cli", "item", "untrash", "--vault-name", vault, "--item-title", title],
+            ["pass-cli", "item", "untrash", "--vault-name", vault, "--item-title", replaced.supersededTitle],
             { stdout: "pipe", stderr: "pipe" },
           );
-          const uec = await untrash.exited;
-          if (uec !== 0) {
-            rollbackHint = ` (rollback also failed: original "${title}" is still in trash — restore it via Proton Pass)`;
+          let renamedBack = false;
+          if ((await untrash.exited) === 0) {
+            const renameBack = Bun.spawn(
+              // prettier-ignore
+              ["pass-cli", "item", "update", "--vault-name", vault, "--item-id", replaced.id, "--field", `title=${title}`],
+              { stdout: "ignore", stderr: "ignore" },
+            );
+            renamedBack = (await renameBack.exited) === 0;
+          }
+          if (!renamedBack) {
+            rollbackHint = ` (rollback incomplete: the original is in trash as "${replaced.supersededTitle}" — restore it via Proton Pass)`;
           }
         }
         return html(renderError(detail + rollbackHint), 500);
       }
 
-      const action: "stored" | "updated" = trashedExisting ? "updated" : "stored";
+      const action: "stored" | "updated" = replaced !== null ? "updated" : "stored";
       used = true;
       // Flush the success page, then shut down.
       queueMicrotask(() => {
