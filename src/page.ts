@@ -147,6 +147,38 @@ const SHELL = (inner: string): string => `<!doctype html>
   button.submit:active { transform: translateY(0) scale(0.99); }
   .foot { margin-top: 16px; font-size: 11.5px; color: var(--muted); line-height: 1.5; text-align: center; }
   .vault { font-family: "SF Mono", ui-monospace, monospace; color: var(--accent); font-weight: 600; }
+  /* multi-field rows */
+  select {
+    font: inherit; font-size: 13px; color: var(--ink); background: #fff;
+    border: 1.5px solid var(--line); border-radius: 10px; padding: 0 8px; height: 38px;
+    cursor: pointer; outline: none; transition: border-color 0.18s ease, box-shadow 0.18s ease;
+  }
+  select:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+  .frow {
+    border: 1.5px solid var(--line); border-radius: 14px; padding: 11px;
+    margin-bottom: 10px; background: rgba(255, 255, 255, 0.5);
+  }
+  .frow-top { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+  .frow-top .fname { flex: 1; min-width: 0; }
+  .rm {
+    flex: 0 0 auto; width: 32px; height: 32px; border: none; background: none;
+    color: var(--muted); font-size: 20px; line-height: 1; cursor: pointer; border-radius: 8px;
+  }
+  .rm:hover { color: var(--err); background: #fdecec; }
+  .frow-val { position: relative; }
+  .frow-val textarea { min-height: 46px; }
+  .peek {
+    position: absolute; top: 9px; right: 11px; font-size: 11px; color: var(--accent);
+    background: rgba(255, 255, 255, 0.85); border: none; cursor: pointer; font-weight: 600;
+    padding: 2px 7px; border-radius: 6px;
+  }
+  .peek:hover { text-decoration: underline; }
+  .addbtn {
+    width: 100%; font: inherit; font-size: 13px; font-weight: 600; color: var(--accent);
+    background: var(--accent-soft); border: none; border-radius: 10px; padding: 9px;
+    cursor: pointer; margin-bottom: 16px; transition: filter 0.15s ease;
+  }
+  .addbtn:hover { filter: brightness(0.97); }
   /* result states */
   .result { text-align: center; padding: 8px 0 4px; }
   .check { width: 64px; height: 64px; margin: 4px auto 14px; }
@@ -190,35 +222,98 @@ export function renderPage(initialTitle: string, vault: string): string {
   return SHELL(`
     <span class="badge"><span class="dot"></span>secret-tap</span>
     <h1>Drop a secret in</h1>
-    <p class="sub">Paste it below. It goes straight into Proton Pass on this machine —
-      nothing else, nowhere else, sees the value.</p>
+    <p class="sub">Paste it below — straight into Proton Pass on this machine, nothing else
+      sees it. More than one value? Add typed fields (an S3 key&nbsp;+&nbsp;secret,
+      a user&nbsp;+&nbsp;pass&nbsp;+&nbsp;endpoint&hellip;).</p>
     <form method="POST" autocomplete="off">
       <div class="field">
         <label for="title">Item title</label>
         <input type="text" id="title" name="title" value="${escapeHtml(initialTitle)}"
           placeholder="scope-resource-purpose" required autocomplete="off" spellcheck="false" />
       </div>
-      <div class="field">
-        <div class="secret-row">
-          <label for="value">Secret value</label>
-          <button type="button" class="toggle" id="toggle">show</button>
-        </div>
-        <textarea id="value" name="value" class="masked" required autocomplete="off"
-          spellcheck="false" placeholder="paste the token / key / credential"></textarea>
-      </div>
+      <label>Fields</label>
+      <div id="fields"></div>
+      <button type="button" class="addbtn" id="addfield">+ Add field</button>
       <button type="submit" class="submit">Store in Proton Pass &rarr;</button>
     </form>
     <p class="foot">Vault: <span class="vault">${escapeHtml(vault)}</span> &middot;
       single-use &middot; this tab self-destructs after submit</p>
+
+    <template id="rowtpl">
+      <div class="frow">
+        <div class="frow-top">
+          <input class="fname" type="text" name="fname" placeholder="field name (e.g. access-key-id)"
+            autocomplete="off" spellcheck="false" />
+          <select class="ftype" name="ftype">
+            <option value="hidden">Secret</option>
+            <option value="text">Text</option>
+            <option value="totp">TOTP</option>
+            <option value="timestamp">Timestamp</option>
+          </select>
+          <button type="button" class="rm" title="remove field" aria-label="remove field">&times;</button>
+        </div>
+        <div class="frow-val">
+          <textarea class="fvalue" name="fvalue" placeholder="value"
+            autocomplete="off" spellcheck="false"></textarea>
+          <button type="button" class="peek">show</button>
+        </div>
+      </div>
+    </template>
+
     <script>
-      const ta = document.getElementById('value');
-      const tg = document.getElementById('toggle');
-      tg.addEventListener('click', () => {
-        const masked = ta.classList.toggle('masked');
-        tg.textContent = masked ? 'show' : 'hide';
+      const fieldsEl = document.getElementById('fields');
+      const tpl = document.getElementById('rowtpl');
+
+      function applyType(row) {
+        const hidden = row.querySelector('.ftype').value === 'hidden';
+        const ta = row.querySelector('.fvalue');
+        const peek = row.querySelector('.peek');
+        ta.classList.toggle('masked', hidden);
+        peek.style.display = hidden ? '' : 'none';
+        peek.textContent = 'show';
+      }
+
+      function refreshRemovable() {
+        const rows = fieldsEl.querySelectorAll('.frow');
+        rows.forEach(function (r) {
+          r.querySelector('.rm').style.visibility = rows.length > 1 ? 'visible' : 'hidden';
+        });
+      }
+
+      function addRow(name, type) {
+        const row = tpl.content.firstElementChild.cloneNode(true);
+        row.querySelector('.fname').value = name || '';
+        row.querySelector('.ftype').value = type || 'text';
+        fieldsEl.appendChild(row);
+        applyType(row);
+        refreshRemovable();
+        return row;
+      }
+
+      fieldsEl.addEventListener('change', function (e) {
+        if (e.target.classList.contains('ftype')) applyType(e.target.closest('.frow'));
       });
-      const t = document.getElementById('title');
-      (t.value ? ta : t).focus();
+      fieldsEl.addEventListener('click', function (e) {
+        if (e.target.classList.contains('rm')) {
+          if (fieldsEl.querySelectorAll('.frow').length > 1) {
+            e.target.closest('.frow').remove();
+            refreshRemovable();
+          }
+        } else if (e.target.classList.contains('peek')) {
+          const ta = e.target.closest('.frow').querySelector('.fvalue');
+          const masked = ta.classList.toggle('masked');
+          e.target.textContent = masked ? 'show' : 'hide';
+        }
+      });
+      document.getElementById('addfield').addEventListener('click', function () {
+        addRow('', 'text').querySelector('.fname').focus();
+      });
+
+      // Initial state: one secret field named "password". Left untouched, the
+      // single-secret case stores a login item — identical to the original.
+      const first = addRow('password', 'hidden');
+      const titleEl = document.getElementById('title');
+      (titleEl.value ? first.querySelector('.fvalue') : titleEl).focus();
     </script>
   `);
 }

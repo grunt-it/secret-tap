@@ -2,10 +2,12 @@
 /**
  * secret-tap — a localhost-only, single-use secret intake form.
  *
- * Run it, a browser tab opens with a form. Paste a secret, submit. The value
- * goes straight from the form POST into `pass-cli item create` (Proton Pass)
- * via stdin — never a CLI arg, never a file, never logged. Whoever started
- * the process (a human, an agent) sees only the exit code.
+ * Run it, a browser tab opens with a form. Paste a secret (or add several
+ * typed fields — Secret / Text / TOTP / Timestamp), submit. The value(s) go
+ * straight from the form POST into `pass-cli item create` (Proton Pass) via
+ * stdin — never a CLI arg, never a file, never logged. One default secret is
+ * stored as a login item; multiple/typed fields become a custom item. Whoever
+ * started the process (a human, an agent) sees only the exit code + result.
  *
  * Hardening:
  *   - server binds to 127.0.0.1 only, on an OS-assigned random port
@@ -19,30 +21,38 @@ import { renderPage, renderSuccess, renderError } from "./page.ts";
 const TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_VAULT = "grunt";
 
-function parseArgs(argv: string[]): { title: string; vault: string } {
+function parseArgs(argv: string[]): { title: string; vault: string; noOpen: boolean } {
   let vault = DEFAULT_VAULT;
+  let noOpen = false;
   const rest: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "--vault" || a === "-v") {
       const next = argv[++i];
       if (next) vault = next;
+    } else if (a === "--no-open") {
+      noOpen = true;
     } else if (a === "--help" || a === "-h") {
       console.log(
-        "secret-tap — paste a secret into a local browser form, it lands in Proton Pass.\n\n" +
-          "Usage: secret-tap [item-title] [--vault <name>]\n\n" +
+        "secret-tap — paste a secret (or several typed fields) into a local browser\n" +
+          "form; it lands in Proton Pass. Value(s) never touch argv, a file, or a log.\n\n" +
+          "Usage: secret-tap [item-title] [--vault <name>] [--no-open]\n\n" +
           `  item-title   pre-fills the title field (default vault: ${DEFAULT_VAULT})\n` +
-          "  --vault, -v  Proton Pass vault to store into\n",
+          "  --vault, -v  Proton Pass vault to store into\n" +
+          "  --no-open    don't auto-open a browser; just print the URL\n\n" +
+          "One secret by default → stored as a login item's password. Add fields —\n" +
+          "each typed Secret / Text / TOTP / Timestamp — and it's stored as a custom\n" +
+          "item, every field addressable as pass://<vault>/<title>/<field-name>.\n",
       );
       process.exit(0);
     } else {
       rest.push(a);
     }
   }
-  return { title: rest.join(" "), vault };
+  return { title: rest.join(" "), vault, noOpen };
 }
 
-const { title: initialTitle, vault } = parseArgs(process.argv.slice(2));
+const { title: initialTitle, vault, noOpen } = parseArgs(process.argv.slice(2));
 
 /**
  * Returns the item-id of an *active* item in `vault` whose title matches
@@ -105,9 +115,86 @@ const server = Bun.serve({
 
       const form = await req.formData();
       const title = String(form.get("title") ?? "").trim();
-      const value = String(form.get("value") ?? "");
-      if (!title || !value) {
-        return html(renderError("Title and value are both required."), 400);
+
+      // Each field row in the form posts one parallel entry into fname / ftype
+      // / fvalue. FormData preserves DOM order, so they zip back together by
+      // index. Drop fully-empty rows (a field that was added but never filled).
+      const rawNames = form.getAll("fname").map((v) => String(v));
+      const rawTypes = form.getAll("ftype").map((v) => String(v));
+      const rawValues = form.getAll("fvalue").map((v) => String(v));
+      const ALLOWED_TYPES = new Set(["hidden", "text", "totp", "timestamp"]);
+      const rowCount = Math.max(rawNames.length, rawTypes.length, rawValues.length);
+      const fields: { name: string; type: string; value: string }[] = [];
+      for (let i = 0; i < rowCount; i++) {
+        const name = (rawNames[i] ?? "").trim();
+        const type = (rawTypes[i] ?? "text").trim();
+        const value = rawValues[i] ?? "";
+        if (name === "" && value === "") continue;
+        fields.push({ name, type, value });
+      }
+
+      if (!title) return html(renderError("Item title is required."), 400);
+      if (fields.length === 0) {
+        return html(renderError("Add at least one field with a value."), 400);
+      }
+      for (const f of fields) {
+        if (!ALLOWED_TYPES.has(f.type)) {
+          return html(renderError(`Unknown field type "${f.type}".`), 400);
+        }
+      }
+
+      // One untouched secret field → a plain login item (password), preserving
+      // the original single-secret behaviour and the `pass://<vault>/<title>`
+      // default-field convention. Anything else (multiple fields, a renamed
+      // field, or a non-secret type) → a custom item whose typed fields are
+      // each addressable as pass://<vault>/<title>/<field-name>. Either way the
+      // value(s) ride into pass-cli on stdin via the template — never argv.
+      const only = fields.length === 1 ? fields[0]! : null;
+      const isLoginDefault =
+        only !== null &&
+        only.type === "hidden" &&
+        (only.name === "" || only.name === "password");
+
+      let itemType: "login" | "custom";
+      let template: string;
+      let fieldNames: string[];
+
+      if (isLoginDefault) {
+        if (only!.value === "") {
+          return html(renderError("The secret value is required."), 400);
+        }
+        itemType = "login";
+        fieldNames = ["password"];
+        template = JSON.stringify({
+          title,
+          username: null,
+          email: null,
+          password: only!.value,
+          totp_uri: null,
+          urls: [],
+        });
+      } else {
+        for (const f of fields) {
+          if (f.name === "" || f.value === "") {
+            return html(renderError("Every field needs a name and a value."), 400);
+          }
+        }
+        itemType = "custom";
+        fieldNames = fields.map((f) => f.name);
+        template = JSON.stringify({
+          title,
+          note: "",
+          sections: [
+            {
+              section_name: "secret-tap",
+              fields: fields.map((f) => ({
+                field_name: f.name,
+                field_type: f.type,
+                value: f.value,
+              })),
+            },
+          ],
+        });
       }
 
       // If an active item with this title already exists in the vault, move
@@ -142,19 +229,12 @@ const server = Bun.serve({
         // and surface the real error from there.
       }
 
-      // Proton Pass login-item template (see `pass-cli item create login
-      // --get-template`). The secret rides in on stdin — never argv.
-      const template = JSON.stringify({
-        title,
-        username: null,
-        email: null,
-        password: value,
-        totp_uri: null,
-        urls: [],
-      });
-
+      // The secret(s) ride in on stdin via the template prepared above — never
+      // argv. `itemType` is "login" (one default secret) or "custom" (typed
+      // fields); both are valid `pass-cli item create` subcommands and both
+      // accept the same `--from-template -` stdin contract.
       const proc = Bun.spawn(
-        ["pass-cli", "item", "create", "login", "--vault-name", vault, "--from-template", "-"],
+        ["pass-cli", "item", "create", itemType, "--vault-name", vault, "--from-template", "-"],
         {
           stdin: new TextEncoder().encode(template),
           stdout: "pipe",
@@ -198,7 +278,7 @@ const server = Bun.serve({
           // form, so the title passed on the command line is not authoritative.
           // `action` is "stored" for a fresh item, "updated" if an existing
           // active item with the same title was rotated.
-          emitResult({ status: "stored", action, title, vault });
+          emitResult({ status: "stored", action, title, vault, itemType, fields: fieldNames });
           process.exit(0);
         }, 600);
       });
@@ -223,19 +303,23 @@ function html(body: string, status = 200): Response {
 /**
  * The tool's machine-readable contract. The LAST line of stdout is always
  * `secret-tap:result <json>`:
- *   - `{ status: "stored", action: "stored" | "updated", title, vault }` on success
- *   - `{ status: "timeout" }` if the tap timed out
+ *   - on success: `{ status: "stored", action: "stored" | "updated", title,
+ *     vault, itemType: "login" | "custom", fields: [<field-name>, ...] }`
+ *   - on timeout:  `{ status: "timeout" }`
  *
  * The exit code (0 / 1) is the coarse signal; this line carries the detail a
- * caller needs to act — above all the FINAL title, since the user can rename
- * in the form, and `action` so the caller knows whether they created a new
- * item or rotated an existing one. Never contains the secret value.
+ * caller needs to act — the FINAL title (the user can rename in the form),
+ * `action` (created vs rotated), and for custom items the `fields` names so a
+ * caller knows what to reference as pass://<vault>/<title>/<field>. Never
+ * contains a secret value.
  */
 function emitResult(result: {
   status: "stored" | "timeout";
   action?: "stored" | "updated";
   title?: string;
   vault?: string;
+  itemType?: "login" | "custom";
+  fields?: string[];
 }): void {
   console.log(`secret-tap:result ${JSON.stringify(result)}`);
 }
@@ -246,13 +330,17 @@ console.log(`  secret-tap → Proton Pass vault "${vault}"`);
 console.log(`  ${tapUrl}`);
 console.log("");
 
-// Open the default browser (macOS `open`; Linux `xdg-open`). On failure,
-// the printed URL above is the fallback.
-const opener = process.platform === "darwin" ? "open" : "xdg-open";
-try {
-  Bun.spawn([opener, tapUrl], { stdout: "ignore", stderr: "ignore" });
-} catch {
-  console.log("  (couldn't auto-open a browser — open the URL above yourself)");
+// Open the default browser (macOS `open`; Linux `xdg-open`). On failure — or
+// with --no-open — the printed URL above is the fallback.
+if (noOpen) {
+  console.log("  (--no-open: open the URL above in a browser yourself)");
+} else {
+  const opener = process.platform === "darwin" ? "open" : "xdg-open";
+  try {
+    Bun.spawn([opener, tapUrl], { stdout: "ignore", stderr: "ignore" });
+  } catch {
+    console.log("  (couldn't auto-open a browser — open the URL above yourself)");
+  }
 }
 
 // Never leave the tap listening forever.

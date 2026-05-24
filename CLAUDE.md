@@ -32,10 +32,24 @@ than two files it has outgrown its purpose — stop and reconsider.
 
 - Bun, not node/npm. `bun install`, `bun run`.
 - `bun run typecheck` before publishing.
-- The store path is `pass-cli item create login --vault-name <vault>
-  --from-template -` (template + secret on stdin — secret never in argv).
-  If `pass-cli` changes its template schema, update the JSON in `index.ts`
-  to match `pass-cli item create login --get-template`.
+- The store path is `pass-cli item create <type> --vault-name <vault>
+  --from-template -` (template + values on stdin — never in argv), where
+  `<type>` is decided from the submitted fields:
+  - **login** when there's exactly one untouched Secret field named
+    `password` (or unnamed). Preserves the original single-secret behaviour
+    and the `pass://<vault>/<title>` default-field convention. Template
+    matches `pass-cli item create login --get-template`.
+  - **custom** for everything else (multiple fields, a renamed field, a
+    non-secret type). Each field becomes a typed section field
+    (`field_type` ∈ `text` | `hidden` | `totp` | `timestamp`), addressable
+    as `pass://<vault>/<title>/<field-name>`. Template matches
+    `pass-cli item create custom --get-template`.
+  If `pass-cli` changes either template schema, update the JSON in `index.ts`
+  to match the corresponding `--get-template`.
+- The form posts one parallel `fname` / `ftype` / `fvalue` triple per field
+  row; `index.ts` zips them by index (FormData preserves DOM order). Field
+  NAMES and TYPES are not secret and ride in the template too — only the
+  trash step's `--item-title` is ever in argv, and the title isn't secret.
 - The tool acts as an UPSERT: before create, an active same-title item is
   moved to trash via `pass-cli item trash --vault-name <vault> --item-title
   <title>` (title only — preserves the "no secret in argv" property). On

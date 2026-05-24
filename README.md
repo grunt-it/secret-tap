@@ -9,6 +9,11 @@ The point: hand a secret to Proton Pass without it passing through a terminal
 you're sharing, a chat transcript, or shell history. Whoever started the
 process (you, or an agent acting on your behalf) sees only the exit code.
 
+Need more than one value? Add fields in the form — each typed **Secret**,
+**Text**, **TOTP**, or **Timestamp** — and the item is stored with all of them
+(e.g. an S3 `access-key-id` + `secret-access-key`, or a `username` + `password`
++ `endpoint`). Every value still rides in over stdin; none touch argv.
+
 ## Install
 
 Straight from GitHub — no npm registry, no build step:
@@ -38,14 +43,20 @@ To pick up updates, re-run the `bun install -g` line.
 1. A server starts on `127.0.0.1` on an OS-assigned random port.
 2. The form lives behind an unguessable single-use path token — anything else
    gets a flat 404.
-3. Your browser opens to it. Paste the value, optionally tweak the title.
+3. Your browser opens to it. Paste the value, optionally tweak the title. Add
+   more fields if the credential has several parts; each field has a name, a
+   type (Secret / Text / TOTP / Timestamp), and a value.
 4. **Upsert step**: if an active item in `<vault>` already has the chosen
    title, it's first moved to trash (`pass-cli item trash --vault-name
    <vault> --item-title <title>` — title only, no secret in argv).
-5. The value is piped into
-   `pass-cli item create login --vault-name <vault> --from-template -`.
-   Whether the previous item was trashed in step 4 or not, the new value
-   always rides in on stdin — never argv.
+5. The value(s) are piped into `pass-cli item create … --from-template -`:
+   - a single, untouched **Secret** field → a **login** item (`password`),
+     so `pass://<vault>/<title>` still resolves it by default — identical to
+     the original single-secret behaviour;
+   - anything else (multiple fields, a renamed field, a non-secret type) → a
+     **custom** item whose typed fields are each addressable as
+     `pass://<vault>/<title>/<field-name>`.
+   Either way the values ride in on stdin — never argv.
 6. Success → a little checkmark (heading reads "Updated" if step 4 trashed
    one, "Stored" otherwise), the tab self-closes, the server stops and the
    process exits `0`.
@@ -57,9 +68,10 @@ To pick up updates, re-run the `bun install -g` line.
 A 5-minute hard timeout means the tap never lingers.
 
 The final stdout line is the machine-readable contract:
-`secret-tap:result {"status":"stored","action":"stored"|"updated","title":"…","vault":"…"}` —
+`secret-tap:result {"status":"stored","action":"stored"|"updated","title":"…","vault":"…","itemType":"login"|"custom","fields":["…"]}` —
 callers (humans or agents) read `action` to know whether they created a new
-item or rotated an existing one.
+item or rotated an existing one, and `fields` to know which names to reference
+as `pass://<vault>/<title>/<field>`.
 
 ## Output contract
 
@@ -68,12 +80,15 @@ including the **final item title**, which you can edit in the form — is the
 last line of stdout:
 
 ```
-secret-tap:result {"status":"stored","title":"my-item","vault":"grunt"}
+secret-tap:result {"status":"stored","action":"stored","title":"my-item","vault":"grunt","itemType":"login","fields":["password"]}
+secret-tap:result {"status":"stored","action":"updated","title":"r2-token","vault":"grunt-ai","itemType":"custom","fields":["access-key-id","secret-access-key"]}
 secret-tap:result {"status":"timeout"}
 ```
 
 Parse that line (not the command-line argument) to learn what the item was
-actually saved as. It never contains the secret value.
+actually saved as — the **final title** (you can edit it in the form), the
+**itemType**, and the **field names** for a custom item. It never contains a
+secret value.
 
 ## Requirements
 
