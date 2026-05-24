@@ -73,3 +73,20 @@ explicit `#main` ref; a bare `github:grunt-it/secret-tap` 404s.
 
 To cut a versioned release later: bump `version` in `package.json`, tag, and
 either point installs at the tag or `bun publish`. Not needed for now.
+
+**bun `#main` cache gotcha (real, repeatedly hit):** after pushing a new
+commit to `main`, `bun install -g "github:grunt-it/secret-tap#main"` — even
+with `--force` — keeps resolving the *stale* cached `main` ref to the previous
+commit, so the global stays on the old version. bun's git ref cache isn't
+re-fetched by a plain reinstall. Reliable fix: remove + clear the cache + pin
+to the new commit SHA:
+
+```sh
+bun remove -g @grunt-it/secret-tap
+rm -rf ~/.bun/install/cache/@GH@grunt-it-secret-tap-* ~/.bun/install/cache/@grunt-it
+bun install -g "github:grunt-it/secret-tap#<new-sha>"   # e.g. #113bb0f
+```
+
+Verify with `grep '"version"' ~/.bun/install/global/node_modules/@grunt-it/secret-tap/package.json`.
+Testing locally needs none of this — just run `bun src/index.ts …` against the
+working tree.

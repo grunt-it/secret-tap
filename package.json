@@ -1,6 +1,6 @@
 {
   "name": "@grunt-it/secret-tap",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Localhost secret-intake tap — paste a secret (or several typed fields) into a single-use local browser form, it lands in Proton Pass, nothing else ever sees it.",
   "type": "module",
   "bin": {

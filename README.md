@@ -73,7 +73,9 @@ To pick up updates, re-run the `bun install -g` line.
    in a worse state. The server stays up so you can fix and retry (re-login,
    change vault, etc.).
 
-A 5-minute hard timeout means the tap never lingers.
+A hard timeout means the tap never lingers — 5 minutes by default, or set
+`--timeout <seconds>` (e.g. `--timeout 1800` for 30 minutes) when you need
+longer to fetch the value.
 
 The final stdout line is the machine-readable contract:
 `secret-tap:result {"status":"stored","action":"stored"|"updated","title":"…","vault":"…","itemType":"login"|"custom","fields":["…"]}` —

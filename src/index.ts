@@ -44,9 +44,11 @@ function parseArgs(argv: string[]): {
   vault: string;
   noOpen: boolean;
   fields: PresetField[];
+  timeoutMs: number;
 } {
   let vault = DEFAULT_VAULT;
   let noOpen = false;
+  let timeoutMs = TIMEOUT_MS;
   const fields: PresetField[] = [];
   const rest: string[] = [];
   for (let i = 0; i < argv.length; i++) {
@@ -78,6 +80,14 @@ function parseArgs(argv: string[]): {
         process.exit(2);
       }
       fields.push({ name, type });
+    } else if (a === "--timeout") {
+      const next = argv[++i];
+      const secs = next ? Number.parseInt(next, 10) : Number.NaN;
+      if (!Number.isFinite(secs) || secs <= 0) {
+        console.error("  --timeout needs a positive number of seconds, e.g. --timeout 1800");
+        process.exit(2);
+      }
+      timeoutMs = secs * 1000;
     } else if (a === "--no-open") {
       noOpen = true;
     } else if (a === "--help" || a === "-h") {
@@ -89,7 +99,8 @@ function parseArgs(argv: string[]): {
           "  --vault, -v      Proton Pass vault to store into\n" +
           "  --field, -f      preset a form row: <name>[:<type>], repeatable.\n" +
           "                   <type> = secret (default) | text | totp | timestamp.\n" +
-          "  --no-open        don't auto-open a browser; just print the URL\n\n" +
+          "  --no-open        don't auto-open a browser; just print the URL\n" +
+          "  --timeout <secs> how long the form stays open before giving up (default 300)\n\n" +
           "One secret by default → stored as a login item's password. Preset (or add\n" +
           "in the form) several typed fields and it's stored as a custom item, every\n" +
           "field addressable as pass://<vault>/<title>/<field-name>.\n\n" +
@@ -101,7 +112,7 @@ function parseArgs(argv: string[]): {
       rest.push(a);
     }
   }
-  return { title: rest.join(" "), vault, noOpen, fields };
+  return { title: rest.join(" "), vault, noOpen, fields, timeoutMs };
 }
 
 const {
@@ -109,6 +120,7 @@ const {
   vault,
   noOpen,
   fields: presetFields,
+  timeoutMs,
 } = parseArgs(process.argv.slice(2));
 
 /**
@@ -400,10 +412,13 @@ if (noOpen) {
   }
 }
 
-// Never leave the tap listening forever.
+// Never leave the tap listening forever (default 5 min; --timeout overrides).
 setTimeout(() => {
-  console.error("  Timed out — no secret submitted in 5 minutes. Exiting.");
+  const mins = Math.round(timeoutMs / 60000);
+  console.error(
+    `  Timed out — no secret submitted in ${mins} minute${mins === 1 ? "" : "s"}. Exiting.`,
+  );
   emitResult({ status: "timeout" });
   server.stop(true);
   process.exit(1);
-}, TIMEOUT_MS);
+}, timeoutMs);
